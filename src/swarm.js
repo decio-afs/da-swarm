@@ -319,6 +319,8 @@
             name, color, el, helper, svg: el.firstElementChild, rot: 0, form: false,
             // Personal pace (0.7 = deliberate, 1.35 = quick), so the swarm never works in step.
             tempo: rand(0.7, 1.35),
+            // How this agent swims in the circle: its own lane, drift and rhythm.
+            lane: rand(0.72, 1.28), drift: rand(-0.28, 0.28), bob: rand(0.5, 1.3), phase: rand(0, Math.PI * 2),
             x: at.x + window.scrollX, y: at.y + window.scrollY, vx: 0, vy: 0,
             targetFn: null, curve: 0, arrive: null, retire: false, gone: false,
             idleSince: 0, hold: null, running: false,
@@ -350,15 +352,20 @@
         return { x: window.innerWidth / 2, y: window.innerHeight * 0.46 };
     }
 
+    // The swarm circles like a school of fish, not a ring of beads: each agent keeps
+    // its own lane, drifts ahead of or behind its spot, and bobs in and out on its own
+    // rhythm, while the whole school slowly breathes.
     function formationPoint(agent, center, radius) {
         const list = S.agents.filter((a) => !a.gone && !a.retire);
         const n = Math.max(1, list.length);
         const i = Math.max(0, list.indexOf(agent));
-        const angle = (i / n) * Math.PI * 2 + S.spin;
-        // The tip of the arrow sits on the circle and points the way the circle turns.
+        const t = performance.now() / 1000;
+        const breathe = 1 + 0.07 * Math.sin(t * 0.6);
+        const angle = (i / n) * Math.PI * 2 + S.spin + agent.drift + 0.22 * Math.sin(t * agent.bob + agent.phase);
+        const r = radius * breathe * agent.lane * (1 + 0.13 * Math.sin(t * agent.bob * 1.4 + agent.phase * 2));
         return {
-            x: center.x + Math.cos(angle) * radius - TIP,
-            y: center.y + Math.sin(angle) * radius - TIP,
+            x: center.x + Math.cos(angle) * r - TIP,
+            y: center.y + Math.sin(angle) * r - TIP,
             heading: angle + Math.PI / 2,
         };
     }
@@ -429,7 +436,9 @@
             a.el.style.transform = `translate(${a.x - window.scrollX}px,${a.y - window.scrollY}px)`;
             // In the circle the arrow faces its direction of travel; at work it stands upright.
             const form = t.heading !== undefined;
-            const want = form ? t.heading - ARROW_HEADING : 0;
+            const speed = Math.hypot(a.vx, a.vy);
+            const heading = form && speed > 18 ? Math.atan2(a.vy, a.vx) : t.heading;
+            const want = form ? heading - ARROW_HEADING : 0;
             let diff = want - a.rot;
             diff = Math.atan2(Math.sin(diff), Math.cos(diff));
             a.rot += diff * (1 - Math.exp(-h * 9));
