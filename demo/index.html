@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DA Swarm demo — Northline Studio</title>
+<style>
+  :root { --bg:#07070a; --card:#111117; --line:#24242e; --text:#f2f2f5; --muted:#9a9aa8; --a:#f64e6e; --b:#ff795e; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  a { color:inherit; text-decoration:none; }
+  .wrap { max-width:1160px; margin:0 auto; padding:0 24px; }
+  nav { position:sticky; top:0; z-index:10; background:rgba(7,7,10,.85); backdrop-filter:blur(8px); border-bottom:1px solid var(--line); }
+  nav .wrap { display:flex; align-items:center; justify-content:space-between; height:64px; }
+  .logo { font-weight:900; letter-spacing:.04em; }
+  .logo span { color:var(--a); }
+  nav ul { display:flex; gap:28px; list-style:none; margin:0; padding:0; color:var(--muted); font-size:14px; }
+  .btn { display:inline-block; padding:12px 22px; border-radius:999px; font-weight:700; font-size:14px; background:linear-gradient(90deg,var(--a),var(--b)); color:#fff; }
+  .btn.ghost { background:transparent; border:1px solid var(--line); }
+  .hero { padding:110px 0 80px; display:grid; grid-template-columns:1.1fr .9fr; gap:48px; align-items:center; }
+  .eyebrow { font-size:11px; font-weight:700; letter-spacing:.35em; text-transform:uppercase; color:var(--muted); }
+  h1 { font-size:clamp(40px,6vw,76px); line-height:.95; margin:18px 0; font-weight:900; letter-spacing:-.03em; text-transform:uppercase; }
+  h1 em { font-style:normal; background:linear-gradient(90deg,var(--a),var(--b)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .lead { color:var(--muted); font-size:18px; max-width:520px; }
+  .cta { display:flex; gap:12px; margin-top:28px; }
+  .art { aspect-ratio:4/5; border-radius:20px; background:radial-gradient(circle at 30% 20%,#ff795e 0,transparent 45%),radial-gradient(circle at 80% 70%,#6b5bff 0,transparent 50%),#15151d; border:1px solid var(--line); position:relative; overflow:hidden; }
+  .art svg { position:absolute; inset:auto 24px 24px auto; width:120px; }
+  .logos { display:flex; gap:40px; justify-content:space-between; padding:28px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); color:var(--muted); font-weight:800; letter-spacing:.12em; font-size:13px; }
+  section { padding:90px 0; }
+  h2 { font-size:clamp(30px,4vw,48px); line-height:1; margin:12px 0 40px; font-weight:900; text-transform:uppercase; letter-spacing:-.02em; }
+  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:26px; }
+  .card h3 { margin:16px 0 8px; font-size:20px; }
+  .card p { margin:0; color:var(--muted); font-size:15px; }
+  .icon { width:44px; height:44px; border-radius:12px; background:linear-gradient(135deg,var(--a),var(--b)); }
+  .work { display:grid; grid-template-columns:repeat(2,1fr); gap:20px; }
+  .shot { aspect-ratio:16/10; border-radius:16px; border:1px solid var(--line); background:linear-gradient(135deg,#1c1c27,#0e0e14); position:relative; overflow:hidden; }
+  .shot.s1 { background:linear-gradient(135deg,#2b1020,#0e0e14); } .shot.s2 { background:linear-gradient(135deg,#102030,#0e0e14); }
+  .shot.s3 { background:linear-gradient(135deg,#1e2b10,#0e0e14); } .shot.s4 { background:linear-gradient(135deg,#2b2410,#0e0e14); }
+  .shot b { position:absolute; left:20px; bottom:16px; font-size:20px; }
+  .shot small { position:absolute; left:20px; bottom:42px; color:var(--muted); font-size:12px; letter-spacing:.2em; text-transform:uppercase; }
+  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:20px; text-align:center; }
+  .stats strong { display:block; font-size:44px; font-weight:900; }
+  .stats span { color:var(--muted); font-size:13px; letter-spacing:.15em; text-transform:uppercase; }
+  .quote { font-size:clamp(22px,3vw,34px); line-height:1.25; font-weight:700; max-width:860px; }
+  .who { margin-top:18px; color:var(--muted); }
+  form { display:grid; grid-template-columns:1fr 1fr; gap:16px; max-width:720px; }
+  input, textarea { width:100%; background:transparent; border:0; border-bottom:1px solid #3a3a46; color:var(--text); padding:14px 0; font:inherit; }
+  textarea { grid-column:1/-1; min-height:90px; }
+  footer { border-top:1px solid var(--line); padding:40px 0; color:var(--muted); font-size:14px; }
+  footer .wrap { display:flex; justify-content:space-between; }
+  .cookie { position:fixed; left:20px; bottom:20px; background:#1a1a22; border:1px solid var(--line); border-radius:12px; padding:12px 16px; font-size:13px; color:var(--muted); }
+  @media (max-width:800px){ .hero,.grid,.work,.stats,form{ grid-template-columns:1fr; } nav ul{ display:none; } .logos{ flex-wrap:wrap; justify-content:center; gap:16px 28px; } }
+</style>
+</head>
+<body>
+<nav>
+  <div class="wrap">
+    <a class="logo" href="#">NORTHLINE<span>.</span></a>
+    <ul><li>Work</li><li>Services</li><li>Studio</li><li>Contact</li></ul>
+    <a class="btn" href="#contact">Start a project</a>
+  </div>
+</nav>
+
+<main class="wrap">
+  <div class="hero">
+    <div>
+      <div class="eyebrow">Brand &amp; product studio</div>
+      <h1>We build <em>brands</em> people remember.</h1>
+      <p class="lead">Northline is a small studio for identity, websites and launch films. We work with founders who want their first impression to be their best one.</p>
+      <div class="cta"><a class="btn" href="#work">See our work</a><a class="btn ghost" href="#contact">Book a call</a></div>
+    </div>
+    <div class="art">
+      <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="40" fill="none" stroke="#fff" stroke-width="3"/><path d="M30 55l14 14 26-34" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/></svg>
+    </div>
+  </div>
+
+  <div class="logos"><span>ARCADIA</span><span>MERIDIAN</span><span>OAKWELL</span><span>LUMEN</span><span>HALCYON</span></div>
+
+  <section id="services">
+    <div class="eyebrow">01 / Services</div>
+    <h2>What we do</h2>
+    <div class="grid">
+      <div class="card"><div class="icon"></div><h3>Identity</h3><p>Logos, type and colour systems that hold up from a favicon to a billboard.</p></div>
+      <div class="card"><div class="icon"></div><h3>Websites</h3><p>Fast, accessible marketing sites built to convert and easy for your team to edit.</p></div>
+      <div class="card"><div class="icon"></div><h3>Launch films</h3><p>Short product films and motion design for launches, ads and social.</p></div>
+    </div>
+  </section>
+
+  <section id="work">
+    <div class="eyebrow">02 / Selected work</div>
+    <h2>Work that speaks</h2>
+    <div class="work">
+      <a class="shot s1" href="#"><small>Identity</small><b>Arcadia Coffee</b></a>
+      <a class="shot s2" href="#"><small>Website</small><b>Meridian Health</b></a>
+      <a class="shot s3" href="#"><small>Launch film</small><b>Oakwell Outdoors</b></a>
+      <a class="shot s4" href="#"><small>Identity</small><b>Lumen Finance</b></a>
+    </div>
+  </section>
+
+  <section>
+    <div class="stats">
+      <div><strong>120+</strong><span>Projects</span></div>
+      <div><strong>14</strong><span>Awards</span></div>
+      <div><strong>9 yrs</strong><span>In business</span></div>
+      <div><strong>98%</strong><span>Rehired</span></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">03 / Kind words</div>
+    <p class="quote">“Northline rebuilt our brand in six weeks and our sign-ups doubled the month we launched. They are the first team I call.”</p>
+    <p class="who">Maya Chen, founder of Lumen Finance</p>
+  </section>
+
+  <section id="contact">
+    <div class="eyebrow">04 / Contact</div>
+    <h2>Let's work together</h2>
+    <form onsubmit="return false">
+      <input placeholder="Your name"><input placeholder="Email">
+      <textarea placeholder="Tell us about your project"></textarea>
+      <a class="btn" href="#">Send message</a>
+    </form>
+  </section>
+</main>
+
+<footer><div class="wrap"><span>© 2026 Northline Studio</span><span>hello@northline.studio</span></div></footer>
+<div class="cookie" data-swarm-skip>This demo uses no cookies.</div>
+
+<script src="../dist/da-swarm.min.js" data-button="true"></script>
+</body>
+</html>

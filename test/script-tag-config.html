@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DA Swarm test — script tag settings</title>
+<style>body{margin:40px;font:16px/1.5 system-ui;background:#fff;color:#111}.box{background:#eef;padding:20px;border-radius:12px;margin:16px 0}</style>
+</head>
+<body>
+<h1>Script tag settings</h1>
+<p>This page checks that data-* settings on the script tag are read.</p>
+<div class="box">A box with a background</div>
+<button data-swarm-toggle>Toggle swarm</button>
+<p data-swarm-skip id="skipped">This paragraph is skipped and never hidden.</p>
+<script src="../src/swarm.js" data-trigger="always" data-agents="5" data-speed="3" data-names="One, Two, Three" data-delay="200" data-toolbar="false" data-labels="true"></script>
+</body>
+</html>
