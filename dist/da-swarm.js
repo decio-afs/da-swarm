@@ -43,6 +43,9 @@
         'SELECT', 'OBJECT', 'EMBED', 'PROGRESS', 'METER',
     ]);
     const STOPPED = Symbol('das-stopped');
+    const TIP = 1.5; // arrow tip offset inside the cursor element
+    // Direction the plain arrow points (tip relative to its tail), in radians.
+    const ARROW_HEADING = Math.atan2(-13, -6.5);
     const ROOT_ID = 'das-root';
 
     const CSS = `
@@ -56,7 +59,9 @@
 #${ROOT_ID} *{box-sizing:border-box}
 .das-agent{position:absolute;left:0;top:0;will-change:transform;opacity:0;transition:opacity .35s ease}
 .das-agent.das-in{opacity:1}
-.das-agent svg{display:block;width:18px;height:22px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))}
+.das-agent svg{display:block;width:18px;height:22px;transform-origin:1.5px 1.5px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))}
+.das-name{transition:opacity .35s ease,transform .35s ease}
+.das-agent.das-form .das-name{opacity:0;transform:scale(.8)}
 .das-name{position:absolute;left:13px;top:17px;padding:3px 8px;border-radius:999px;color:#fff;font-size:11px;font-weight:600;line-height:1;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.35)}
 .das-sel{position:absolute;left:0;top:0;border:1.5px solid;border-radius:2px;will-change:transform,width,height}
 .das-sel.das-dash{border-style:dashed}
@@ -70,6 +75,9 @@
 .das-done .das-pulse{animation:none;background:#9aa0a6}
 @keyframes das-pulse{70%{box-shadow:0 0 0 7px rgba(61,220,151,0)}100%{box-shadow:0 0 0 0 rgba(61,220,151,0)}}
 .das-bar b{font-weight:700;color:#fff;font-variant-numeric:tabular-nums}
+.das-bar [data-live]{display:flex;align-items:center;gap:10px}
+.das-bar [data-live][hidden],.das-bar [data-summary][hidden]{display:none}
+.das-bar [data-summary]{font-weight:600;color:#fff}
 .das-muted{color:#9aa0a6}
 .das-prog{width:90px;height:4px;border-radius:4px;background:rgba(255,255,255,.12);overflow:hidden}
 .das-prog i{display:block;height:100%;width:0;background:linear-gradient(90deg,#f64e6e,#ff795e);transition:width .25s ease}
@@ -99,6 +107,11 @@
         return new Promise((resolve, reject) => {
             setTimeout(() => (S && S.token === token ? resolve() : reject(STOPPED)), ms / S.cfg.speed);
         });
+    }
+
+    // Wait on an agent's own clock: quick agents wait less, deliberate ones more.
+    function wait(agent, ms) {
+        return sleep(ms / agent.tempo);
     }
 
     // ── Collecting layers ──────────────────────────────────────────────────────
@@ -303,12 +316,14 @@
         el.innerHTML = ARROW(color) + (S.cfg.labels ? `<span class="das-name" style="background:${color}">${escapeHtml(name)}</span>` : '');
         S.root.appendChild(el);
         const agent = {
-            name, color, el, helper,
-            x: at.x, y: at.y, vx: 0, vy: 0,
+            name, color, el, helper, svg: el.firstElementChild, rot: 0, form: false,
+            // Personal pace (0.7 = deliberate, 1.35 = quick), so the swarm never works in step.
+            tempo: rand(0.7, 1.35),
+            x: at.x + window.scrollX, y: at.y + window.scrollY, vx: 0, vy: 0,
             targetFn: null, curve: 0, arrive: null, retire: false, gone: false,
             idleSince: 0, hold: null, running: false,
         };
-        el.style.transform = `translate(${agent.x}px,${agent.y}px)`;
+        el.style.transform = `translate(${agent.x - window.scrollX}px,${agent.y - window.scrollY}px)`;
         setTimeout(() => el.classList.add('das-in'), 16);
         S.agents.push(agent);
         return agent;
@@ -340,8 +355,12 @@
         const n = Math.max(1, list.length);
         const i = Math.max(0, list.indexOf(agent));
         const angle = (i / n) * Math.PI * 2 + S.spin;
-        // Offset so the tip of the arrow, not its corner, sits on the circle.
-        return { x: center.x + Math.cos(angle) * radius - 4, y: center.y + Math.sin(angle) * radius - 6 };
+        // The tip of the arrow sits on the circle and points the way the circle turns.
+        return {
+            x: center.x + Math.cos(angle) * radius - TIP,
+            y: center.y + Math.sin(angle) * radius - TIP,
+            heading: angle + Math.PI / 2,
+        };
     }
 
     // The outro circle drifts slowly around the screen.
@@ -387,14 +406,17 @@
     // Each cursor is a critically damped spring pulled toward its target: it speeds
     // up and slows down smoothly, never snaps, and does not overshoot.
     function stepAgents(dt) {
-        const w = 6.2 * Math.sqrt(S.cfg.speed);
+        const base = 6.2 * Math.sqrt(S.cfg.speed);
         const h = Math.min(dt, 0.04);
         for (const a of S.agents) {
             if (a.gone || !a.targetFn) continue;
+            const w = base * (0.78 + 0.32 * a.tempo);
             const t = a.targetFn();
             if (!t) continue;
-            const dx = t.x - a.x;
-            const dy = t.y - a.y;
+            const tx = t.page ? t.x : t.x + window.scrollX;
+            const ty = t.page ? t.y : t.y + window.scrollY;
+            const dx = tx - a.x;
+            const dy = ty - a.y;
             const dist = Math.hypot(dx, dy);
             // A slight sideways pull while far away makes the path curve like a hand.
             const bend = dist > 60 ? a.curve : 0;
@@ -404,7 +426,18 @@
             a.vy += ay * h;
             a.x += a.vx * h;
             a.y += a.vy * h;
-            a.el.style.transform = `translate(${a.x}px,${a.y}px)`;
+            a.el.style.transform = `translate(${a.x - window.scrollX}px,${a.y - window.scrollY}px)`;
+            // In the circle the arrow faces its direction of travel; at work it stands upright.
+            const form = t.heading !== undefined;
+            const want = form ? t.heading - ARROW_HEADING : 0;
+            let diff = want - a.rot;
+            diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+            a.rot += diff * (1 - Math.exp(-h * 9));
+            if (a.svg) a.svg.style.transform = Math.abs(a.rot) < 0.002 ? '' : `rotate(${a.rot}rad)`;
+            if (form !== a.form) {
+                a.form = form;
+                a.el.classList.toggle('das-form', form);
+            }
             if (a.arrive && dist < 3 && Math.hypot(a.vx, a.vy) < 120) {
                 const done = a.arrive;
                 a.arrive = null;
@@ -431,7 +464,9 @@
             const r = rectOf(L);
             if (!r) continue;
             const v = visibleRect(r);
-            const score = seen * 60 + Math.hypot(v.left + Math.min(v.width, 160) / 2 - agent.x, v.top - agent.y) * 0.35;
+            const ax = agent.x - window.scrollX;
+            const ay = agent.y - window.scrollY;
+            const score = seen * 60 + Math.hypot(v.left + Math.min(v.width, 160) / 2 - ax, v.top - ay) * 0.35;
             if (score < bestScore) {
                 bestScore = score;
                 best = L;
@@ -453,7 +488,7 @@
                 continue;
             }
             try {
-                await sleep(rand(120, 380));
+                await wait(agent, Math.random() < 0.15 ? rand(500, 1100) : rand(60, 520));
                 alive(token);
                 if (L.type === 'text') await buildText(agent, L, token);
                 else await buildRect(agent, L, token);
@@ -473,7 +508,7 @@
                 agent.hold = null;
                 return formationPoint(agent, viewportCenter(), formationRadius());
             }
-            if (!agent.hold) agent.hold = { x: agent.x, y: agent.y };
+            if (!agent.hold) agent.hold = { x: agent.x, y: agent.y, page: true };
             return agent.hold;
         };
         await sleep(200);
@@ -515,7 +550,7 @@
         wrap.classList.remove('das-h');
         const sel = addSelection(agent, () => wrap.getBoundingClientRect());
 
-        const total = clamp(spans.length * (byWord ? 80 : 46), 420, 2400);
+        const total = clamp(spans.length * (byWord ? 80 : 46), 420, 2400) * rand(0.85, 1.2);
         const steps = Math.max(1, Math.min(spans.length, Math.round(total / 50)));
         const per = Math.ceil(spans.length / steps);
         for (let i = 0; i < spans.length; i += per) {
@@ -526,11 +561,13 @@
                 const r = last.getBoundingClientRect();
                 return { x: r.right + 1, y: r.top + r.height * 0.6 };
             };
-            await sleep(total / steps);
+            // Keystrokes are uneven, and now and then the agent hesitates.
+            const hesitate = Math.random() < 0.06 ? rand(160, 420) : 0;
+            await wait(agent, (total / steps) * rand(0.55, 1.5) + hesitate);
             alive(token);
         }
         wrap.replaceChildren(L.node);
-        await sleep(120);
+        await wait(agent, rand(60, 260));
         removeSelection(sel);
         finish(L);
     }
@@ -543,7 +580,7 @@
         };
         await moveTo(agent, () => {
             const r = rect();
-            return r ? { x: r.left, y: r.top } : { x: agent.x, y: agent.y };
+            return r ? { x: r.left, y: r.top } : { x: agent.x, y: agent.y, page: true };
         });
         alive(token);
 
@@ -551,7 +588,7 @@
         sel.progress = 0;
         const r0 = rect();
         const size = r0 ? Math.hypot(r0.width, r0.height) : 200;
-        const dur = clamp(480 + size * 0.6, 560, 1500);
+        const dur = (clamp(480 + size * 0.6, 560, 1500) * rand(0.85, 1.2)) / agent.tempo;
         const start = performance.now();
         agent.targetFn = () => {
             const r = rect();
@@ -564,7 +601,7 @@
             sel.progress = ease(clamp(((performance.now() - start) * S.cfg.speed) / dur, 0, 1));
         }
         fadeIn(L, L.type === 'media' ? 'das-mh' : 'das-bh');
-        await sleep(380);
+        await wait(agent, rand(220, 520));
         removeSelection(sel);
         finish(L);
     }
@@ -601,7 +638,7 @@
         const active = S.agents.filter((a) => !a.retire).length;
         if (S.phase === 'build' && active < want && S.spawnCooldown <= 0) {
             const from = S.agents[Math.floor(Math.random() * S.agents.length)];
-            release(spawnAgent(true, from ? { x: from.x, y: from.y } : viewportCenter()));
+            release(spawnAgent(true, from ? { x: from.x - window.scrollX, y: from.y - window.scrollY } : viewportCenter()));
             S.spawnCooldown = 0.06;
         } else if (active > want && S.scrollSpeed < 60) {
             const helper = S.agents.find((a) => a.helper && !a.retire);
@@ -660,8 +697,9 @@
         bar.className = 'das-bar';
         bar.innerHTML = `
 <span class="das-logo">DA</span>
-<span class="das-pulse"></span><span><b data-agents>0</b> <span class="das-muted">agents</span></span>
-<span class="das-hide-sm"><b data-built>0</b><span class="das-muted">/<span data-total>0</span> layers</span></span>
+<span class="das-pulse"></span><span data-live><span><b data-agents>0</b> <span class="das-muted">agents</span></span>
+<span class="das-hide-sm"><b data-built>0</b><span class="das-muted">/<span data-total>0</span> layers</span></span></span>
+<span data-summary hidden></span>
 <span class="das-prog"><i></i></span>
 <span class="das-status" data-status>Building</span>
 <button class="das-btn" data-speed title="Build speed">1×</button>
@@ -698,6 +736,12 @@
         q('.das-prog i').style.width = `${S.layers.length ? (S.built / S.layers.length) * 100 : 100}%`;
         const inView = S.layers.some((L) => L.state !== 2 && L.pageY < window.scrollY + window.innerHeight && L.pageY + L.h > window.scrollY);
         q('[data-status]').textContent = S.phase === 'intro' ? 'Starting' : S.finished ? 'Done' : inView ? 'Building' : 'Scroll to build';
+        const summary = q('[data-summary]');
+        if (S.finished && S.doneIn !== undefined) {
+            summary.textContent = `Rebuilt by ${S.peak} agents in ${S.doneIn.toFixed(1)}s`;
+            summary.hidden = false;
+            q('[data-live]').hidden = true;
+        }
         S.bar.classList.toggle('das-done', S.finished);
         q('[data-speed]').textContent = `${S.cfg.speed}×`;
         q('[data-tour]').classList.toggle('das-active', S.cfg.tour);
@@ -735,9 +779,12 @@
         updateGathering(now);
         stepAgents(dt);
         drawSelections();
+        S.peak = Math.max(S.peak, S.agents.filter((a) => !a.gone).length);
         if (!S.finished && S.phase === 'build' && S.built >= S.layers.length) {
             S.finished = true;
+            S.doneIn = (now - S.buildAt) / 1000;
             startOutro();
+            updateBar(true);
         }
         updateBar(false);
         schedule();
@@ -756,6 +803,7 @@
 
     function endIntro() {
         S.phase = 'build';
+        S.buildAt = performance.now();
         // Peel off the circle one by one.
         S.agents.forEach((a, i) => setTimeout(() => S && S.agents.includes(a) && release(a), i * 70));
     }
@@ -786,7 +834,7 @@
         S = {
             cfg, root, style, token: Symbol('run'), layers: [], agents: [], selections: new Set(),
             built: 0, cursor: 0, spawned: 0, finished: false, bar: null, lastBar: 0, tourTo: null, screenDoneAt: 0,
-            phase: 'intro', introUntil: 0, outroAt: 0, spin: 0, gathering: false,
+            phase: 'intro', introUntil: 0, outroAt: 0, spin: 0, gathering: false, peak: 0, buildAt: 0,
             last: performance.now(), startedAt: performance.now(), lastScrollY: window.scrollY, scrollSpeed: 0, spawnCooldown: 0,
         };
 

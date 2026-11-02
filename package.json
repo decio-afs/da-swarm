@@ -1,11 +1,11 @@
 {
   "name": "da-swarm",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Rebuild any web page live with a swarm of AI agent cursors. One script tag, no dependencies.",
   "main": "dist/da-swarm.min.js",
   "files": ["dist", "src", "README.md", "LICENSE"],
   "scripts": {
-    "build": "esbuild src/swarm.js --minify --target=es2019 --legal-comments=none --banner:js=\"/*! DA Swarm v1.1.0 | MIT | https://github.com/decio-afs/da-swarm */\" --outfile=dist/da-swarm.min.js && node -e \"require('fs').copyFileSync('src/swarm.js','dist/da-swarm.js')\"",
+    "build": "esbuild src/swarm.js --minify --target=es2019 --legal-comments=none --banner:js=\"/*! DA Swarm v1.2.0 | MIT | https://github.com/decio-afs/da-swarm */\" --outfile=dist/da-swarm.min.js && node -e \"require('fs').copyFileSync('src/swarm.js','dist/da-swarm.js')\"",
     "demo": "python -m http.server 5600"
   },
   "keywords": ["animation", "website", "ai-agents", "cursors", "multiplayer", "showcase", "demo"],
