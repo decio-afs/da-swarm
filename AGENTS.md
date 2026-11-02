@@ -34,6 +34,7 @@ npm run demo         # python -m http.server 5600, then open /demo/index.html?sw
 - **Never change the page's layout.** Text is hidden by wrapping its text node in a `visibility:hidden` span, media by `opacity:0`, boxes by removing background, border and shadow. Anything that changes size would make the page jump.
 - **Restore exactly.** `stop()` must leave `document.body.innerHTML` identical to before `start()` on a static page (that includes removing a `class` attribute the element did not have). Re-check this after any change to hiding or revealing.
 - **Never rely on `requestAnimationFrame` alone.** The loop uses rAF with a timer fallback (`schedule()`), and tour scrolling runs in that loop, not `scroll-behavior: smooth`. Throttled tabs and embedded previews deliver no animation frames.
+- **Cursors move only for a task.** Phases: `intro` (rotating circle in the centre), `build`, `outro` (the circle drifting around the screen until stopped). An idle agent holds its position; the swarm gathers into the circle only when every agent has been idle for 1.3s (`updateGathering`), which is longer than the tour's 0.9s screen hold. Movement is a critically damped spring (`stepAgents`), so cursors never snap.
 - **Nothing leaves the page.** No network requests, storage or cookies.
 - **Normal visitors must never see it** unless the site owner opts in (`data-trigger="always"` or `data-button`).
 - Keep the settings table in `README.md` in sync with `readConfig()` in `src/swarm.js`.

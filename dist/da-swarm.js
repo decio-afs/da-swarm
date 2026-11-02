@@ -284,7 +284,7 @@
 
     // ── Agents ─────────────────────────────────────────────────────────────────
 
-    function spawnAgent(helper) {
+    function spawnAgent(helper, at) {
         // Reuse the first free name, so agents that come and go while scrolling do not
         // count up to "Agent 85".
         const names = S.cfg.names.length ? S.cfg.names : DEFAULTS.names;
@@ -302,19 +302,71 @@
         el.className = 'das-agent';
         el.innerHTML = ARROW(color) + (S.cfg.labels ? `<span class="das-name" style="background:${color}">${escapeHtml(name)}</span>` : '');
         S.root.appendChild(el);
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
         const agent = {
             name, color, el, helper,
-            x: rand(vw * 0.1, vw * 0.9), y: helper ? vh + 20 : rand(vh * 0.2, vh * 0.95),
+            x: at.x, y: at.y, vx: 0, vy: 0,
             targetFn: null, curve: 0, arrive: null, retire: false, gone: false,
+            idleSince: 0, hold: null, running: false,
         };
+        el.style.transform = `translate(${agent.x}px,${agent.y}px)`;
         setTimeout(() => el.classList.add('das-in'), 16);
         S.agents.push(agent);
+        return agent;
+    }
+
+    function release(agent) {
+        if (agent.running || agent.gone) return;
+        agent.running = true;
         runAgent(agent).catch((e) => {
             if (e !== STOPPED) console.error('[DA Swarm]', e);
         });
-        return agent;
+    }
+
+    // ── Formation: the circle the swarm forms while waiting for work ───────────
+    // Used for the intro, whenever every agent is out of work, and the outro.
+
+    function formationRadius() {
+        const n = Math.max(1, S.agents.filter((a) => !a.gone && !a.retire).length);
+        const base = clamp(Math.min(window.innerWidth, window.innerHeight) * 0.12, 56, 140);
+        return base * clamp(Math.sqrt(n / 16), 0.75, 1.5);
+    }
+
+    function viewportCenter() {
+        return { x: window.innerWidth / 2, y: window.innerHeight * 0.46 };
+    }
+
+    function formationPoint(agent, center, radius) {
+        const list = S.agents.filter((a) => !a.gone && !a.retire);
+        const n = Math.max(1, list.length);
+        const i = Math.max(0, list.indexOf(agent));
+        const angle = (i / n) * Math.PI * 2 + S.spin;
+        // Offset so the tip of the arrow, not its corner, sits on the circle.
+        return { x: center.x + Math.cos(angle) * radius - 4, y: center.y + Math.sin(angle) * radius - 6 };
+    }
+
+    // The outro circle drifts slowly around the screen.
+    function outroCenter() {
+        const t = (performance.now() - S.outroAt) / 1000;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const ramp = clamp(t / 4, 0, 1); // start at the centre, then widen the path
+        return {
+            x: vw / 2 + Math.sin(t * 0.21) * vw * 0.28 * ramp,
+            y: vh * 0.46 + Math.sin(t * 0.29 + 0.4) * vh * 0.2 * ramp,
+        };
+    }
+
+    function startOutro() {
+        S.phase = 'outro';
+        S.outroAt = performance.now();
+        for (const a of [...S.agents]) {
+            if (a.helper) {
+                a.retire = true;
+                retireAgent(a);
+                continue;
+            }
+            a.targetFn = () => formationPoint(a, outroCenter(), formationRadius());
+        }
     }
 
     function escapeHtml(s) {
@@ -324,14 +376,19 @@
     function moveTo(agent, targetFn) {
         const token = S.token;
         agent.targetFn = targetFn;
-        agent.curve = rand(-0.35, 0.35);
+        agent.idleSince = 0;
+        agent.hold = null;
+        agent.curve = rand(-0.22, 0.22);
         return new Promise((resolve, reject) => {
             agent.arrive = { resolve, reject, token };
         });
     }
 
+    // Each cursor is a critically damped spring pulled toward its target: it speeds
+    // up and slows down smoothly, never snaps, and does not overshoot.
     function stepAgents(dt) {
-        const k = 1 - Math.exp(-dt * 4.6 * Math.sqrt(S.cfg.speed));
+        const w = 6.2 * Math.sqrt(S.cfg.speed);
+        const h = Math.min(dt, 0.04);
         for (const a of S.agents) {
             if (a.gone || !a.targetFn) continue;
             const t = a.targetFn();
@@ -340,11 +397,15 @@
             const dy = t.y - a.y;
             const dist = Math.hypot(dx, dy);
             // A slight sideways pull while far away makes the path curve like a hand.
-            const bend = dist > 40 ? a.curve : 0;
-            a.x += dx * k - dy * bend * k;
-            a.y += dy * k + dx * bend * k;
+            const bend = dist > 60 ? a.curve : 0;
+            const ax = w * w * (dx - dy * bend) - 2 * w * a.vx;
+            const ay = w * w * (dy + dx * bend) - 2 * w * a.vy;
+            a.vx += ax * h;
+            a.vy += ay * h;
+            a.x += a.vx * h;
+            a.y += a.vy * h;
             a.el.style.transform = `translate(${a.x}px,${a.y}px)`;
-            if (a.arrive && dist < 3) {
+            if (a.arrive && dist < 3 && Math.hypot(a.vx, a.vy) < 120) {
                 const done = a.arrive;
                 a.arrive = null;
                 done.resolve();
@@ -384,10 +445,11 @@
         const token = S.token;
         while (true) {
             alive(token);
+            if (S.phase === 'outro') return;
             if (agent.retire) return retireAgent(agent);
             const L = pickLayer(agent);
             if (!L) {
-                await wander(agent, token);
+                await idle(agent, token);
                 continue;
             }
             try {
@@ -402,13 +464,19 @@
         }
     }
 
-    async function wander(agent, token) {
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
-        const x = clamp(agent.x + rand(-vw * 0.18, vw * 0.18), 20, vw - 60);
-        const y = clamp(agent.y + rand(-vh * 0.15, vh * 0.15), 20, vh - 90);
-        agent.targetFn = () => ({ x, y });
-        await sleep(rand(350, 900));
+    // No work: stay exactly where the last task ended. Cursors only move for a task,
+    // or to form the waiting circle once the whole swarm is out of work.
+    async function idle(agent, token) {
+        if (!agent.idleSince) agent.idleSince = performance.now();
+        agent.targetFn = () => {
+            if (S.gathering) {
+                agent.hold = null;
+                return formationPoint(agent, viewportCenter(), formationRadius());
+            }
+            if (!agent.hold) agent.hold = { x: agent.x, y: agent.y };
+            return agent.hold;
+        };
+        await sleep(200);
         alive(token);
     }
 
@@ -531,8 +599,9 @@
         const extra = Math.min(S.cfg.maxAgents - S.cfg.agents, Math.floor(S.scrollSpeed / 220) * 2);
         const want = S.cfg.agents + Math.max(0, extra);
         const active = S.agents.filter((a) => !a.retire).length;
-        if (active < want && S.spawnCooldown <= 0) {
-            spawnAgent(true);
+        if (S.phase === 'build' && active < want && S.spawnCooldown <= 0) {
+            const from = S.agents[Math.floor(Math.random() * S.agents.length)];
+            release(spawnAgent(true, from ? { x: from.x, y: from.y } : viewportCenter()));
             S.spawnCooldown = 0.06;
         } else if (active > want && S.scrollSpeed < 60) {
             const helper = S.agents.find((a) => a.helper && !a.retire);
@@ -542,7 +611,7 @@
     }
 
     function tourTick() {
-        if (!S || !S.cfg.tour || S.finished) return;
+        if (!S || !S.cfg.tour || S.finished || S.phase !== 'build') return;
         const vh = window.innerHeight;
         const sy = window.scrollY;
         let pending = 0;
@@ -628,7 +697,7 @@
         q('[data-total]').textContent = S.layers.length;
         q('.das-prog i').style.width = `${S.layers.length ? (S.built / S.layers.length) * 100 : 100}%`;
         const inView = S.layers.some((L) => L.state !== 2 && L.pageY < window.scrollY + window.innerHeight && L.pageY + L.h > window.scrollY);
-        q('[data-status]').textContent = S.finished ? 'Done' : inView ? 'Building' : 'Scroll to build';
+        q('[data-status]').textContent = S.phase === 'intro' ? 'Starting' : S.finished ? 'Done' : inView ? 'Building' : 'Scroll to build';
         S.bar.classList.toggle('das-done', S.finished);
         q('[data-speed]').textContent = `${S.cfg.speed}×`;
         q('[data-tour]').classList.toggle('das-active', S.cfg.tour);
@@ -658,17 +727,37 @@
         if (!S) return;
         const dt = Math.min(0.05, Math.max(0.001, (now - S.last) / 1000));
         S.last = now;
+        S.spin += dt * 0.55;
         stepTour(dt);
         trackScroll(dt);
         catchUp();
+        if (S.phase === 'intro' && now >= S.introUntil) endIntro();
+        updateGathering(now);
         stepAgents(dt);
         drawSelections();
-        if (!S.finished && S.built >= S.layers.length) {
+        if (!S.finished && S.phase === 'build' && S.built >= S.layers.length) {
             S.finished = true;
-            for (const a of S.agents) a.retire = true;
+            startOutro();
         }
         updateBar(false);
         schedule();
+    }
+
+    // The whole swarm is out of work (e.g. waiting for a scroll): gather into the
+    // waiting circle. A short delay keeps it from forming between two screens of a tour.
+    function updateGathering(now) {
+        if (S.phase !== 'build') {
+            S.gathering = false;
+            return;
+        }
+        const working = S.agents.filter((a) => !a.gone && !a.retire);
+        S.gathering = working.length > 0 && working.every((a) => a.idleSince && now - a.idleSince > 1300);
+    }
+
+    function endIntro() {
+        S.phase = 'build';
+        // Peel off the circle one by one.
+        S.agents.forEach((a, i) => setTimeout(() => S && S.agents.includes(a) && release(a), i * 70));
     }
 
     function onKey(e) {
@@ -697,6 +786,7 @@
         S = {
             cfg, root, style, token: Symbol('run'), layers: [], agents: [], selections: new Set(),
             built: 0, cursor: 0, spawned: 0, finished: false, bar: null, lastBar: 0, tourTo: null, screenDoneAt: 0,
+            phase: 'intro', introUntil: 0, outroAt: 0, spin: 0, gathering: false,
             last: performance.now(), startedAt: performance.now(), lastScrollY: window.scrollY, scrollSpeed: 0, spawnCooldown: 0,
         };
 
@@ -704,7 +794,17 @@
         hideAll(S.layers);
         refreshPositions();
         if (cfg.toolbar) buildBar();
-        for (let i = 0; i < cfg.agents; i++) setTimeout(() => S && spawnAgent(false), 500 + i * 70);
+        // Intro: the swarm appears in the centre and circles, waiting for its orders.
+        S.phase = 'intro';
+        S.introUntil = performance.now() + 350 + cfg.agents * 45 + 1500;
+        const c = viewportCenter();
+        for (let i = 0; i < cfg.agents; i++) {
+            setTimeout(() => {
+                if (!S) return;
+                const a = spawnAgent(false, { x: c.x - 4, y: c.y - 6 });
+                a.targetFn = () => formationPoint(a, viewportCenter(), formationRadius());
+            }, 350 + i * 45);
+        }
         syncLauncher();
         S.refreshTimer = setInterval(() => S && refreshPositions(), 1500);
         S.tourTimer = setInterval(tourTick, 450);

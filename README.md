@@ -112,9 +112,11 @@ DASwarm.inspect();     // a snapshot of progress, for debugging
 
 1. **Read the page.** It finds every visible piece of text, every image, video, SVG and form field, and every element with a background, border or shadow. Each is a layer.
 2. **Hide without moving anything.** Text is wrapped in a hidden span, media is made transparent, and boxes lose their background and border. Nothing changes size, so the layout stays still.
-3. **Build it back.** Each agent picks a nearby unbuilt layer on screen and flies to it. It types text letter by letter, drags a selection box out for media and boxes (showing the size, like a design tool), then fades the layer in.
-4. **Follow the scroll.** Layers off screen wait until you scroll to them, and more agents join while you scroll fast. Anything you scroll past without building appears at once. In Tour mode it scrolls on by itself once each screen is finished.
-5. **Restore.** Stopping removes every wrapper and class it added, so the page's HTML is exactly what it was.
+3. **Intro.** The swarm appears in the centre of the screen as a slowly rotating circle, waiting for its orders, then the agents peel off one by one.
+4. **Build it back.** Each agent picks a nearby unbuilt layer on screen and glides to it. It types text letter by letter, drags a selection box out for media and boxes (showing the size, like a design tool), then fades the layer in.
+5. **Follow the scroll.** Layers off screen wait until you scroll to them, and more agents join while you scroll fast. Anything you scroll past without building appears at once. In Tour mode it scrolls on by itself once each screen is finished. Cursors only move when they have a task: an agent with nothing to do stays where it is, and when the whole swarm is out of work (say, waiting for you to scroll) it gathers back into the rotating circle.
+6. **Outro.** When the whole page is built, the swarm regroups into the circle, which drifts slowly around the screen until you stop it.
+7. **Restore.** Stopping removes every wrapper and class it added, so the page's HTML is exactly what it was.
 
 ## Good to know
 
