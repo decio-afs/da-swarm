@@ -2,7 +2,7 @@
 
 Watch a swarm of AI agent cursors rebuild your website live.
 
-Add one script tag to your site. Visit any page with `?swarm` on the end of the URL, and the page blanks out while a swarm of named cursors builds it back: typing the text, dragging out the boxes and fading the images in. Turn on **Tour** and it scrolls the whole page by itself, ready to screen-record.
+Add one script tag to your site. Visit any page with `?swarm` on the end of the URL, and the page blanks out while a swarm of named cursors builds it back: typing the text, dragging out the boxes and fading the images in. Turn on **Tour** and it scrolls the whole page by itself in one smooth, continuous move, ready to screen-record.
 
 - One file, about 20 KB, no dependencies, no build step for your site.
 - Normal visitors never see it. It only runs when you ask for it.
@@ -114,7 +114,7 @@ DASwarm.inspect();     // a snapshot of progress, for debugging
 2. **Hide without moving anything.** Text is wrapped in a hidden span, media is made transparent, and boxes lose their background and border. Nothing changes size, so the layout stays still.
 3. **Intro.** The swarm appears in the centre of the screen and circles like a school of fish, each arrow in its own lane and facing the way it swims, waiting for its orders, then the agents peel off one by one.
 4. **Build it back.** Each agent picks a nearby unbuilt layer on screen and glides to it. Every agent has its own pace, with uneven typing and the odd pause, so the swarm never works in step. It types text letter by letter, drags a selection box out for media and boxes (showing the size, like a design tool), then fades the layer in.
-5. **Follow the scroll.** Layers off screen wait until you scroll to them, and more agents join while you scroll fast. Anything you scroll past without building appears at once. In Tour mode it scrolls on by itself once each screen is finished. Cursors only move when they have a task, and they live on the page, not the screen: an agent with nothing to do stays where it is on the page and scrolls away with it, and when the whole swarm is out of work (say, waiting for you to scroll) it gathers back into the rotating circle.
+5. **Follow the scroll.** Layers off screen wait until you scroll to them, and more agents join while you scroll fast. Anything you scroll past without building appears at once. In Tour mode the page scrolls by itself in one continuous move that never stops: it slows down while a screen has a lot left to build (especially near the top, about to scroll away), speeds up when there is little, and extra agents join on busy screens. Cursors only move when they have a task, and they live on the page, not the screen: an agent with nothing to do stays where it is on the page and scrolls away with it, and when the whole swarm is out of work (say, waiting for you to scroll) it gathers back into the rotating circle.
 6. **Outro.** When the whole page is built, the toolbar shows how many agents rebuilt it and how long it took, and the swarm regroups into the circle, which drifts slowly around the screen until you stop it.
 7. **Restore.** Stopping removes every wrapper and class it added, so the page's HTML is exactly what it was.
 

@@ -626,6 +626,7 @@
             if (n > 80) break;
             if (L.state === 0 && L.pageY + L.h < limit) {
                 revealNow(L);
+                S.skipped++;
                 n++;
             }
         }
@@ -639,64 +640,66 @@
             S.lastScrollY = y;
             return;
         }
-        const v = Math.abs(y - S.lastScrollY) / Math.max(dt, 0.001);
+        const v = Math.max(0, Math.abs(y - S.lastScrollY) / Math.max(dt, 0.001) - (S.tourV || 0));
         S.lastScrollY = y;
         S.scrollSpeed = S.scrollSpeed * 0.9 + v * 0.1;
-        const extra = Math.min(S.cfg.maxAgents - S.cfg.agents, Math.floor(S.scrollSpeed / 220) * 2);
+        // Extra hands join while the visitor scrolls fast, or on a busy screen during a tour.
+        const fromScroll = Math.floor(S.scrollSpeed / 220) * 2;
+        const fromLoad = S.cfg.tour && S.phase === 'build' ? Math.floor(Math.max(0, S.load - 1.2) * 5) : 0;
+        const extra = Math.min(S.cfg.maxAgents - S.cfg.agents, Math.max(fromScroll, fromLoad));
         const want = S.cfg.agents + Math.max(0, extra);
         const active = S.agents.filter((a) => !a.retire).length;
         if (S.phase === 'build' && active < want && S.spawnCooldown <= 0) {
             const from = S.agents[Math.floor(Math.random() * S.agents.length)];
             release(spawnAgent(true, from ? { x: from.x - window.scrollX, y: from.y - window.scrollY } : viewportCenter()));
             S.spawnCooldown = 0.06;
-        } else if (active > want && S.scrollSpeed < 60) {
+        } else if (active > want && S.scrollSpeed < 60 && (!S.cfg.tour || S.load < 1)) {
             const helper = S.agents.find((a) => a.helper && !a.retire);
             if (helper) helper.retire = true;
         }
         S.spawnCooldown -= dt;
     }
 
-    function tourTick() {
-        if (!S || !S.cfg.tour || S.finished || S.phase !== 'build') return;
+    // Tour: one continuous scroll that never stops. It crawls when the screen has a
+    // lot left to build (above all near the top, about to scroll away) and picks up
+    // speed when there is little, easing between speeds like a camera move.
+    function tourLoad() {
         const vh = window.innerHeight;
         const sy = window.scrollY;
-        let pending = 0;
+        let load = 0;
         for (const L of S.layers) {
-            if (L.state !== 2 && L.pageY >= sy - 10 && L.pageY < sy + vh * 0.92) pending++;
+            if (L.state === 2) continue;
+            const y = L.pageY - sy;
+            if (y + L.h < 0 || y > vh) continue;
+            // Work near the top weighs most: it leaves the screen first.
+            const fromTop = clamp(y / vh, 0, 1);
+            load += 1 + 2 * (1 - fromTop) + (fromTop < 0.2 ? 4 : 0);
         }
-        if (pending > 1) {
-            S.screenDoneAt = 0;
-            return;
-        }
-        // Hold each finished screen for a moment so a recording shows it complete.
-        const now = performance.now();
-        if (!S.screenDoneAt) S.screenDoneAt = now;
-        if (now - S.screenDoneAt < 900 / S.cfg.speed) return;
-        S.screenDoneAt = 0;
-        const maxY = document.documentElement.scrollHeight - vh;
-        if (sy >= maxY - 2 || S.tourTo !== null) return;
-        S.tourTo = Math.min(maxY, sy + vh * 0.62);
+        const crew = Math.max(1, S.agents.filter((a) => !a.gone && !a.retire).length);
+        return load / crew;
     }
 
-    // Tour scrolling runs in the swarm's own loop (not scroll-behavior: smooth), so it
-    // keeps an even pace for recording and works where smooth scrolling is unavailable.
     function stepTour(dt) {
-        if (S.tourTo === null) return;
-        if (!S.cfg.tour) {
-            S.tourTo = null;
+        if (!S.cfg.tour || S.finished || S.phase !== 'build') {
+            S.tourV = 0;
+            S.tourY = null;
             return;
         }
-        const y = window.scrollY;
-        const d = S.tourTo - y;
-        if (Math.abs(d) < 1.5) {
-            S.tourTo = null;
+        const vh = window.innerHeight;
+        const maxY = document.documentElement.scrollHeight - vh;
+        // Follow the real scroll position if the visitor scrolls during the tour.
+        if (S.tourY === null || Math.abs(S.tourY - window.scrollY) > 4) S.tourY = window.scrollY;
+        if (S.tourY >= maxY - 1) {
+            S.tourV = 0;
             return;
         }
-        const step = d * (1 - Math.exp(-dt * 3.2 * Math.sqrt(S.cfg.speed)));
-        const next = y + (Math.abs(step) < 1 ? Math.sign(d) : step);
-        window.scrollTo(0, next);
-        // A page that refuses to scroll further (end of page, scroll lock) ends the move.
-        if (Math.abs(window.scrollY - y) < 0.5) S.tourTo = null;
+        const base = vh * 0.11 * S.cfg.speed; // px per second on an average screen
+        S.load = tourLoad();
+        const factor = clamp(1.7 / (1 + S.load * 0.6), 0.1, 1.7);
+        const want = base * factor;
+        S.tourV += (want - S.tourV) * (1 - Math.exp(-dt * 1.4));
+        S.tourY = Math.min(maxY, S.tourY + S.tourV * dt);
+        window.scrollTo(0, S.tourY);
     }
 
     // ── Toolbar ────────────────────────────────────────────────────────────────
@@ -842,7 +845,7 @@
 
         S = {
             cfg, root, style, token: Symbol('run'), layers: [], agents: [], selections: new Set(),
-            built: 0, cursor: 0, spawned: 0, finished: false, bar: null, lastBar: 0, tourTo: null, screenDoneAt: 0,
+            built: 0, cursor: 0, spawned: 0, finished: false, bar: null, lastBar: 0, tourV: 0, tourY: null, skipped: 0, load: 0,
             phase: 'intro', introUntil: 0, outroAt: 0, spin: 0, gathering: false, peak: 0, buildAt: 0,
             last: performance.now(), startedAt: performance.now(), lastScrollY: window.scrollY, scrollSpeed: 0, spawnCooldown: 0,
         };
@@ -864,7 +867,6 @@
         }
         syncLauncher();
         S.refreshTimer = setInterval(() => S && refreshPositions(), 1500);
-        S.tourTimer = setInterval(tourTick, 450);
         window.addEventListener('keydown', onKey, true);
         schedule();
         updateBar(true);
@@ -877,7 +879,6 @@
         cancelAnimationFrame(s.raf);
         clearTimeout(s.tick);
         clearInterval(s.refreshTimer);
-        clearInterval(s.tourTimer);
         window.removeEventListener('keydown', onKey, true);
         for (const a of s.agents) {
             if (a.arrive) a.arrive.reject(STOPPED);
@@ -909,6 +910,7 @@
             S && {
                 built: S.built,
                 total: S.layers.length,
+                skipped: S.skipped, // layers scrolled past before an agent built them
                 agents: S.agents.length,
                 scrollY: window.scrollY,
                 layers: S.layers.map((L) => ({ type: L.type, state: L.state, pageY: Math.round(L.pageY), h: Math.round(L.h), text: L.type === 'text' ? L.node.nodeValue.trim().slice(0, 24) : L.el.tagName })),
