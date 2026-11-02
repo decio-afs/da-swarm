@@ -25,10 +25,10 @@ Open <http://localhost:5600/demo/index.html?swarm&tour=1>, or open the demo with
 
 ## Add it to your website
 
-Paste this before the closing `</body>` tag:
+Paste this before the closing `</body>` tag. `@1` always serves the latest 1.x release; pin an exact version such as `@1.0.1` if you prefer.
 
 ```html
-<script src="https://cdn.jsdelivr.net/gh/decio-afs/da-swarm@1.0.0/dist/da-swarm.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/decio-afs/da-swarm@1/dist/da-swarm.min.js" defer></script>
 ```
 
 Prefer to host it yourself? Download [`dist/da-swarm.min.js`](dist/da-swarm.min.js), upload it to your site and point the `src` at it.
@@ -41,7 +41,7 @@ import Script from 'next/script';
 
 // inside <body>, after {children}:
 <Script
-  src="https://cdn.jsdelivr.net/gh/decio-afs/da-swarm@1.0.0/dist/da-swarm.min.js"
+  src="https://cdn.jsdelivr.net/gh/decio-afs/da-swarm@1/dist/da-swarm.min.js"
   strategy="afterInteractive"
   data-delay="500"
 />
@@ -77,7 +77,7 @@ Set them on the script tag (`data-…`) as your defaults. A URL parameter overri
 | Jump to the top first | `data-from-top="true"` | `top=1` | on |
 | Name tags on cursors | `data-labels="true"` | `labels=1` | on |
 | Bottom toolbar | `data-toolbar="true"` | `toolbar=1` | on |
-| Agent names, comma separated | `data-names="Ava, Hunter, Sage"` | `names=Ava,Hunter` | 24 built-in names |
+| Agent names, comma separated | `data-names="Ava, Hunter, Sage"` | `names=Ava,Hunter` | 48 built-in names |
 | Wait before starting (ms) | `data-delay="4000"` | `delay=4000` | `0` |
 | When it starts by itself | `data-trigger="query"` | — | `query` |
 | Floating launcher button | `data-button="true"` | — | off |

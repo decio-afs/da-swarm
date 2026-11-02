@@ -25,6 +25,9 @@
             'Ava', 'Hunter', 'Sage', 'Nova', 'Atlas', 'Echo', 'Iris', 'Orion',
             'Pixel', 'Rex', 'Vega', 'Zed', 'Kai', 'Luna', 'Milo', 'Nyx',
             'Odin', 'Quinn', 'Remy', 'Sol', 'Tess', 'Uma', 'Vox', 'Wren',
+            'Ace', 'Blaze', 'Cleo', 'Dash', 'Ember', 'Finn', 'Gale', 'Hex',
+            'Indy', 'Jett', 'Koda', 'Lyra', 'Mars', 'Neo', 'Onyx', 'Piper',
+            'Rune', 'Sky', 'Taz', 'Ursa', 'Volt', 'Wade', 'Xena', 'Yuki',
         ],
     };
     const COLORS = [
@@ -516,6 +519,12 @@
 
     function trackScroll(dt) {
         const y = window.scrollY;
+        // Ignore the opening jump to the top (smooth-scroll libraries animate it), so it
+        // does not count as the visitor scrolling fast.
+        if (performance.now() - S.startedAt < 1500) {
+            S.lastScrollY = y;
+            return;
+        }
         const v = Math.abs(y - S.lastScrollY) / Math.max(dt, 0.001);
         S.lastScrollY = y;
         S.scrollSpeed = S.scrollSpeed * 0.9 + v * 0.1;
@@ -688,7 +697,7 @@
         S = {
             cfg, root, style, token: Symbol('run'), layers: [], agents: [], selections: new Set(),
             built: 0, cursor: 0, spawned: 0, finished: false, bar: null, lastBar: 0, tourTo: null, screenDoneAt: 0,
-            last: performance.now(), lastScrollY: window.scrollY, scrollSpeed: 0, spawnCooldown: 0,
+            last: performance.now(), startedAt: performance.now(), lastScrollY: window.scrollY, scrollSpeed: 0, spawnCooldown: 0,
         };
 
         S.layers = collect();

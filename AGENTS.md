@@ -49,4 +49,4 @@ npm run demo         # python -m http.server 5600, then open /demo/index.html?sw
 
 ## Releasing
 
-Bump `version` in `package.json` and the banner in the `build` script, run `npm run build`, commit, then tag `v<version>` and push the tag. Update the version in the README's CDN URLs.
+Bump `version` in `package.json` and the banner in the `build` script, run `npm run build`, commit, then tag `v<version>` and push the tag. The README uses `@1`, so 1.x releases reach sites without editing it.
