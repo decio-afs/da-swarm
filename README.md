@@ -59,6 +59,7 @@ Paste the script tag into the site's **footer code** or **custom code (end of bo
 | **Alt + Shift + S** | Toggles it on any page that has the script. Ignored while typing in a form field |
 | A button on your own site | Give any element `data-swarm-toggle` and clicking it toggles the swarm: `<button data-swarm-toggle>Watch it build</button>` |
 | A ready-made button | Add `data-button="true"` to the script tag for a small floating **Watch it build** button |
+| **P** or ❚❚ in the toolbar | Pauses it: every agent drops its task and swims in the circle. Press again (▶) to send them back to work |
 | **Esc** or ✕ in the toolbar | Stops it and restores the page |
 | ↻ in the toolbar | Builds the page again from the top |
 
@@ -104,7 +105,11 @@ To leave something alone, such as a cookie banner or chat widget, give it `data-
 ```js
 DASwarm.start({ agents: 24, speed: 2, tour: true }); // any setting from the table, camelCase
 DASwarm.stop();        // stop and restore the page
+DASwarm.pause();       // agents leave their tasks and circle; building and the tour stop
+DASwarm.resume();      // agents go back and finish their tasks
+DASwarm.togglePause();
 DASwarm.isRunning();   // true or false
+DASwarm.isPaused();    // true or false
 DASwarm.inspect();     // a snapshot of progress, for debugging
 ```
 
@@ -116,7 +121,8 @@ DASwarm.inspect();     // a snapshot of progress, for debugging
 4. **Build it back.** Each agent picks a nearby unbuilt layer on screen and glides to it. Every agent has its own pace, with uneven typing and the odd pause, so the swarm never works in step. It types text letter by letter, drags a selection box out for media and boxes (showing the size, like a design tool), then fades the layer in.
 5. **Follow the scroll.** Layers off screen wait until you scroll to them, and more agents join while you scroll fast. Anything you scroll past without building appears at once. In Tour mode the page scrolls by itself in one continuous move that never stops: it slows down while a screen has a lot left to build (especially near the top, about to scroll away), speeds up when there is little, and extra agents join on busy screens. Cursors only move when they have a task, and they live on the page, not the screen: an agent with nothing to do stays where it is on the page and scrolls away with it, and when the whole swarm is out of work (say, waiting for you to scroll) it gathers back into the rotating circle.
 6. **Outro.** When the whole page is built, the toolbar shows how many agents rebuilt it and how long it took, and the swarm regroups into the circle, which drifts slowly around the screen until you stop it.
-7. **Restore.** Stopping removes every wrapper and class it added, so the page's HTML is exactly what it was.
+7. **Pause.** Pausing sends every agent from its task into the circle in the middle of the screen. Nothing is built, the tour stops and the timer stops. Resuming sends each agent back to finish exactly what it was doing.
+8. **Restore.** Stopping removes every wrapper and class it added, so the page's HTML is exactly what it was.
 
 ## Good to know
 

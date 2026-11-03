@@ -6,7 +6,8 @@
  * typing text, dragging out boxes and fading media in. Nothing is sent anywhere
  * and stop() restores the page exactly.
  *
- * API: window.DASwarm.start(config), .stop(), .isRunning()
+ * API: window.DASwarm.start(config), .stop(), .pause(), .resume(), .togglePause(),
+ *      .isRunning(), .isPaused()
  * By DA Agency — https://www.daagencyllc.com
  */
 (() => {
@@ -85,6 +86,10 @@
 .das-btn{all:unset;cursor:pointer;padding:4px 8px;border-radius:6px;font-size:11px;font-weight:600;color:#ececf1;background:rgba(255,255,255,.08)}
 .das-btn:hover{background:rgba(255,255,255,.16)}
 .das-btn.das-active{background:linear-gradient(90deg,#f64e6e,#ff795e);color:#fff}
+.das-btn[hidden]{display:none}
+.das-sel{transition:opacity .3s ease}
+#${ROOT_ID}.das-paused .das-sel{opacity:0}
+.das-paused .das-pulse{animation:none;background:#ffb547}
 @media (max-width:640px){.das-prog,.das-hide-sm{display:none}}
 @media (max-width:480px){.das-bar{gap:6px;padding:6px 6px 6px 8px;bottom:12px}.das-status{display:none}.das-btn{padding:4px 7px}}
 `;
@@ -102,10 +107,17 @@
         if (!S || S.token !== token) throw STOPPED;
     }
 
+    // Every wait in the swarm goes through here, so pausing holds all work in place:
+    // a wait that ends while paused resolves only after resume.
     function sleep(ms) {
         const token = S.token;
         return new Promise((resolve, reject) => {
-            setTimeout(() => (S && S.token === token ? resolve() : reject(STOPPED)), ms / S.cfg.speed);
+            const check = () => {
+                if (!S || S.token !== token) return reject(STOPPED);
+                if (S.paused) return setTimeout(check, 100);
+                resolve();
+            };
+            setTimeout(check, ms / S.cfg.speed);
         });
     }
 
@@ -418,7 +430,8 @@
         for (const a of S.agents) {
             if (a.gone || !a.targetFn) continue;
             const w = base * (0.78 + 0.32 * a.tempo);
-            const t = a.targetFn();
+            // Paused: every agent leaves its task and swims in the idle circle.
+            const t = S.paused ? formationPoint(a, viewportCenter(), formationRadius()) : a.targetFn();
             if (!t) continue;
             const tx = t.page ? t.x : t.x + window.scrollX;
             const ty = t.page ? t.y : t.y + window.scrollY;
@@ -447,7 +460,7 @@
                 a.form = form;
                 a.el.classList.toggle('das-form', form);
             }
-            if (a.arrive && dist < 3 && Math.hypot(a.vx, a.vy) < 120) {
+            if (a.arrive && !S.paused && dist < 3 && Math.hypot(a.vx, a.vy) < 120) {
                 const done = a.arrive;
                 a.arrive = null;
                 done.resolve();
@@ -598,7 +611,8 @@
         const r0 = rect();
         const size = r0 ? Math.hypot(r0.width, r0.height) : 200;
         const dur = (clamp(480 + size * 0.6, 560, 1500) * rand(0.85, 1.2)) / agent.tempo;
-        const start = performance.now();
+        let elapsed = 0;
+        let last = performance.now();
         agent.targetFn = () => {
             const r = rect();
             if (!r) return null;
@@ -607,7 +621,11 @@
         while (sel.progress < 1) {
             await sleep(16);
             alive(token);
-            sel.progress = ease(clamp(((performance.now() - start) * S.cfg.speed) / dur, 0, 1));
+            // Count only running time, so a pause does not make the box jump ahead.
+            const now = performance.now();
+            elapsed += Math.min(now - last, 50);
+            last = now;
+            sel.progress = ease(clamp((elapsed * S.cfg.speed) / dur, 0, 1));
         }
         fadeIn(L, L.type === 'media' ? 'das-mh' : 'das-bh');
         await wait(agent, rand(220, 520));
@@ -649,7 +667,7 @@
         const extra = Math.min(S.cfg.maxAgents - S.cfg.agents, Math.max(fromScroll, fromLoad));
         const want = S.cfg.agents + Math.max(0, extra);
         const active = S.agents.filter((a) => !a.retire).length;
-        if (S.phase === 'build' && active < want && S.spawnCooldown <= 0) {
+        if (S.phase === 'build' && !S.paused && active < want && S.spawnCooldown <= 0) {
             const from = S.agents[Math.floor(Math.random() * S.agents.length)];
             release(spawnAgent(true, from ? { x: from.x - window.scrollX, y: from.y - window.scrollY } : viewportCenter()));
             S.spawnCooldown = 0.06;
@@ -680,7 +698,7 @@
     }
 
     function stepTour(dt) {
-        if (!S.cfg.tour || S.finished || S.phase !== 'build') {
+        if (!S.cfg.tour || S.finished || S.paused || S.phase !== 'build') {
             S.tourV = 0;
             S.tourY = null;
             return;
@@ -714,10 +732,12 @@
 <span data-summary hidden></span>
 <span class="das-prog"><i></i></span>
 <span class="das-status" data-status>Building</span>
+<button class="das-btn" data-pause title="Pause: the agents stop and circle (P)" aria-label="Pause">❚❚</button>
 <button class="das-btn" data-speed title="Build speed">1×</button>
 <button class="das-btn" data-tour title="Auto-scroll the page">Tour</button>
 <button class="das-btn" data-replay title="Build the page again">↻</button>
 <button class="das-btn" data-close title="Stop and restore the page (Esc or Alt+Shift+S)">✕</button>`;
+        bar.querySelector('[data-pause]').addEventListener('click', () => togglePause());
         bar.querySelector('[data-speed]').addEventListener('click', () => {
             S.cfg.speed = (S.cfg.speed % 3) + 1;
             updateBar(true);
@@ -747,7 +767,13 @@
         q('[data-total]').textContent = S.layers.length;
         q('.das-prog i').style.width = `${S.layers.length ? (S.built / S.layers.length) * 100 : 100}%`;
         const inView = S.layers.some((L) => L.state !== 2 && L.pageY < window.scrollY + window.innerHeight && L.pageY + L.h > window.scrollY);
-        q('[data-status]').textContent = S.phase === 'intro' ? 'Starting' : S.finished ? 'Done' : inView ? 'Building' : 'Scroll to build';
+        q('[data-status]').textContent = S.paused ? 'Paused' : S.phase === 'intro' ? 'Starting' : S.finished ? 'Done' : inView ? 'Building' : 'Scroll to build';
+        const pause = q('[data-pause]');
+        pause.hidden = S.finished;
+        pause.textContent = S.paused ? '▶' : '❚❚';
+        pause.title = S.paused ? 'Resume: the agents go back to work (P)' : 'Pause: the agents stop and circle (P)';
+        pause.setAttribute('aria-label', S.paused ? 'Resume' : 'Pause');
+        pause.classList.toggle('das-active', S.paused);
         const summary = q('[data-summary]');
         if (S.finished && S.doneIn !== undefined) {
             summary.textContent = `Rebuilt by ${S.peak} agents in ${S.doneIn.toFixed(1)}s`;
@@ -787,14 +813,16 @@
         stepTour(dt);
         trackScroll(dt);
         catchUp();
-        if (S.phase === 'intro' && now >= S.introUntil) endIntro();
+        if (S.paused) S.pausedMs += now - S.lastPauseTick;
+        S.lastPauseTick = now;
+        if (S.phase === 'intro' && !S.paused && now >= S.introUntil) endIntro();
         updateGathering(now);
         stepAgents(dt);
         drawSelections();
         S.peak = Math.max(S.peak, S.agents.filter((a) => !a.gone).length);
         if (!S.finished && S.phase === 'build' && S.built >= S.layers.length) {
             S.finished = true;
-            S.doneIn = (now - S.buildAt) / 1000;
+            S.doneIn = (now - S.buildAt - S.pausedMs) / 1000;
             startOutro();
             updateBar(true);
         }
@@ -805,7 +833,7 @@
     // The whole swarm is out of work (e.g. waiting for a scroll): gather into the
     // waiting circle. A short delay keeps it from forming between two screens of a tour.
     function updateGathering(now) {
-        if (S.phase !== 'build') {
+        if (S.phase !== 'build' || S.paused) {
             S.gathering = false;
             return;
         }
@@ -820,8 +848,41 @@
         S.agents.forEach((a, i) => setTimeout(() => S && S.agents.includes(a) && release(a), i * 70));
     }
 
+    // ── Pause ──────────────────────────────────────────────────────────────────
+    // Agents drop what they are doing and swim in the idle circle; building, the tour
+    // and the timer stop. On resume each agent goes back and finishes its own task.
+
+    function pause() {
+        if (!S || S.paused || S.finished) return;
+        S.paused = true;
+        if (S.phase === 'intro') S.introLeft = Math.max(0, S.introUntil - performance.now());
+        S.root.classList.add('das-paused');
+        updateBar(true);
+    }
+
+    function resume() {
+        if (!S || !S.paused) return;
+        S.paused = false;
+        if (S.phase === 'intro') S.introUntil = performance.now() + S.introLeft;
+        // Agents with nothing to do stay where the circle left them.
+        for (const a of S.agents) a.hold = null;
+        S.root.classList.remove('das-paused');
+        updateBar(true);
+    }
+
+    function togglePause() {
+        if (!S) return;
+        if (S.paused) resume();
+        else pause();
+    }
+
     function onKey(e) {
         if (e.key === 'Escape') stop();
+        if ((e.key === 'p' || e.key === 'P') && !e.altKey && !e.ctrlKey && !e.metaKey) {
+            const t = e.target;
+            if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+            togglePause();
+        }
     }
 
     function start(config) {
@@ -847,6 +908,7 @@
             cfg, root, style, token: Symbol('run'), layers: [], agents: [], selections: new Set(),
             built: 0, cursor: 0, spawned: 0, finished: false, bar: null, lastBar: 0, tourV: 0, tourY: null, skipped: 0, load: 0,
             phase: 'intro', introUntil: 0, outroAt: 0, spin: 0, gathering: false, peak: 0, buildAt: 0,
+            paused: false, pausedMs: 0, lastPauseTick: performance.now(), introLeft: 0,
             last: performance.now(), startedAt: performance.now(), lastScrollY: window.scrollY, scrollSpeed: 0, spawnCooldown: 0,
         };
 
@@ -903,7 +965,11 @@
     window.DASwarm = {
         start,
         stop,
+        pause,
+        resume,
+        togglePause,
         isRunning: () => !!S,
+        isPaused: () => !!(S && S.paused),
         defaults: { ...DEFAULTS },
         // For debugging: a snapshot of what the swarm sees.
         inspect: () =>
@@ -912,6 +978,7 @@
                 total: S.layers.length,
                 skipped: S.skipped, // layers scrolled past before an agent built them
                 agents: S.agents.length,
+                paused: S.paused,
                 scrollY: window.scrollY,
                 layers: S.layers.map((L) => ({ type: L.type, state: L.state, pageY: Math.round(L.pageY), h: Math.round(L.h), text: L.type === 'text' ? L.node.nodeValue.trim().slice(0, 24) : L.el.tagName })),
             },

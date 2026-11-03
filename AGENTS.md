@@ -45,8 +45,9 @@ npm run demo         # python -m http.server 5600, then open /demo/index.html?sw
 2. Serve the repo (`npm run demo`) and open `demo/index.html?swarm&tour=1`: every layer builds (toolbar shows `N/N` and "Done"), the tour reaches the bottom.
 3. In the console: snapshot `document.body.innerHTML`, `DASwarm.start()`, stop mid-build, and confirm the HTML is identical. Repeat after scrolling away mid-build and after a full tour build.
 4. Open `test/script-tag-config.html`: 5 agents named One/Two/Three/Agent 4/Agent 5, no toolbar, the skipped paragraph stays visible, the toggle button stops it.
-5. Check phone width (375px): the toolbar fits and is centred.
-6. Try a real framework site (e.g. a Next.js site) for console errors.
+5. Pause mid-build (❚❚ or P): every agent circles the screen centre, the built count stays still, the status says Paused and the selection boxes hide. Resume: the build carries on and finishes; the final time excludes the pause. Also pause during the intro.
+6. Check phone width (375px): the toolbar fits and is centred.
+7. Try a real framework site (e.g. a Next.js site) for console errors.
 
 ## Releasing
 
