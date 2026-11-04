@@ -521,7 +521,7 @@
                 if (e !== STOPPED && S && S.token === token) revealNow(L);
                 throw e;
             } finally {
-                const el = L.type === 'text' ? L.wrap && L.wrap.parentElement : L.el;
+                const el = L.adjustEl;
                 const plan = S && el && S.adjusting.get(el);
                 if (plan && L.state === 2) plan.restore();
             }
@@ -557,7 +557,7 @@
     // Only the CSS translate and scale properties change, so the layout never moves,
     // a site's own transform keeps working, and stop() puts the old values back.
 
-    function canAdjust(el) {
+    function canAdjust(el, title) {
         if (!(S.cfg.adjust > 0) || !el || !el.isConnected || !el.style) return false;
         if (el === document.body || el === document.documentElement) return false;
         if (el.style.translate || el.style.scale) return false;
@@ -568,44 +568,55 @@
         const r = el.getBoundingClientRect();
         const vw = window.innerWidth;
         const vh = window.innerHeight;
+        // A title only ever starts smaller than it is, so it never grows past its own box:
+        // any size and any place on screen works, even while it scrolls in from the bottom.
+        if (title) return r.width >= 24 && r.height >= 10 && r.bottom > 0 && r.top < vh;
         if (r.width < 40 || r.height < 14 || r.width > vw * 0.8 || r.height > vh * 0.55) return false;
         return r.top >= 0 && r.bottom <= vh && r.left >= 0 && r.right <= vw; // fully on screen
     }
 
     // How far off the piece lands. It always stays on screen, so the page never scrolls sideways.
-    function planAdjust(el) {
+    function planAdjust(el, title) {
         const r = el.getBoundingClientRect();
         const vw = window.innerWidth;
         const vh = window.innerHeight;
         const home = { left: r.left + window.scrollX, top: r.top + window.scrollY, width: r.width, height: r.height };
+        if (title) {
+            // A title is typed in a small font, then pulled up to its real size. It grows
+            // from where its text sits: the left edge, the middle or the right edge.
+            const align = getComputedStyle(el).textAlign;
+            const ox = align === 'center' ? 0.5 : align === 'right' || align === 'end' ? 1 : 0;
+            return { kind: 'resize', title: true, k: rand(0.38, 0.55), dx: 0, dy: 0, ox, home };
+        }
         if (Math.random() < 0.5) {
             let k = Math.random() < 0.5 ? rand(0.6, 0.8) : rand(1.12, 1.3);
             k = Math.min(k, (vw - 8 - r.left) / r.width, (vh - 8 - r.top) / r.height);
-            if (Math.abs(k - 1) >= 0.08) return { kind: 'resize', k, dx: 0, dy: 0, home };
+            if (Math.abs(k - 1) >= 0.08) return { kind: 'resize', k, dx: 0, dy: 0, ox: 0, home };
         }
         const a = rand(0, Math.PI * 2);
         const d = rand(45, 120);
         const dx = clamp(Math.cos(a) * d, 8 - r.left, vw - 8 - r.right);
         const dy = clamp(Math.sin(a) * d * 0.7, 8 - r.top, vh - 8 - r.bottom);
         if (Math.hypot(dx, dy) < 24) return null;
-        return { kind: 'move', k: 1, dx, dy, home };
+        return { kind: 'move', k: 1, dx, dy, ox: 0, home };
     }
 
     // Puts the piece at step t of its way home (0 = where it landed, 1 = home).
-    // Scaling keeps the top-left corner fixed, like pulling the bottom-right handle.
+    // Scaling keeps the top edge fixed at its anchor (plan.ox: 0 left, 0.5 middle, 1 right),
+    // like pulling a handle. The default transform origin is the centre, so shift to match.
     function placeAdjust(el, plan, t) {
         const k = plan.k + (1 - plan.k) * t;
         const w = el.offsetWidth || plan.home.width;
         const h = el.offsetHeight || plan.home.height;
-        const x = (k - 1) * (w / 2) + plan.dx * (1 - t);
+        const x = (1 - k) * (plan.ox - 0.5) * w + plan.dx * (1 - t);
         const y = (k - 1) * (h / 2) + plan.dy * (1 - t);
         el.style.translate = `${x.toFixed(2)}px ${y.toFixed(2)}px`;
         el.style.scale = k.toFixed(4);
     }
 
-    function startAdjust(el) {
-        if (!canAdjust(el) || Math.random() >= S.cfg.adjust) return null;
-        const plan = planAdjust(el);
+    function startAdjust(el, title = false) {
+        if (!canAdjust(el, title) || (!title && Math.random() >= S.cfg.adjust)) return null;
+        const plan = planAdjust(el, title);
         if (!plan) return null;
         const saved = { hadStyle: el.hasAttribute('style'), translate: el.style.translate, scale: el.style.scale };
         plan.restore = () => {
@@ -623,6 +634,16 @@
     // drags it home. A faint dashed outline shows where it belongs.
     async function settle(agent, el, plan, token) {
         try {
+            if (plan.title) {
+                // Other agents may still be typing the rest of the title: wait for them.
+                const inside = S.layers.filter((L) => L !== plan.layer && (L.type === 'text' ? el.contains(L.wrap) : el.contains(L.el)));
+                let waited = 0;
+                while (waited < 6000 && inside.some((L) => L.state !== 2)) {
+                    await sleep(100);
+                    alive(token);
+                    waited += 100;
+                }
+            }
             const grab = () => {
                 const r = el.getBoundingClientRect();
                 return plan.kind === 'resize' ? { x: r.right, y: r.bottom } : { x: r.left + Math.min(r.width, 180) / 2, y: r.top + Math.min(r.height, 48) / 2 };
@@ -660,12 +681,30 @@
         }
     }
 
-    // The element a text node can be moved by: its parent, when the text is all it holds.
+    // A title: a heading, or a block in a large font. Its text is always typed small first.
+    function titleOf(el) {
+        const h = el.closest('h1,h2,h3,h4,h5,h6');
+        if (h) return h;
+        for (let n = el, i = 0; n && n !== document.body && i < 4; n = n.parentElement, i++) {
+            const cs = getComputedStyle(n);
+            if (cs.display === 'inline' || cs.display === 'contents') continue;
+            return parseFloat(cs.fontSize) >= 30 ? n : null;
+        }
+        return null;
+    }
+
+    // The element a text node can be moved or resized by: its title, or its parent when
+    // the text is all the parent holds.
     function textHolder(L) {
         const el = L.wrap.parentElement;
         if (!el || el.closest(`#${ROOT_ID}`)) return null;
+        const title = titleOf(el);
+        if (title && !S.boxEls.has(title)) {
+            if (S.titles.has(title)) return null; // already sized, or being sized by another agent
+            return { el: title, title: true };
+        }
         if (S.boxEls.has(el)) return null; // a box that may already be on screen moves only with its own build
-        return el.textContent.trim() === L.node.nodeValue.trim() ? el : null;
+        return el.textContent.trim() === L.node.nodeValue.trim() ? { el, title: false } : null;
     }
 
     async function buildText(agent, L, token) {
@@ -676,8 +715,14 @@
             return r;
         };
         // The text may land off too; the agent then goes to where it landed.
-        const holder = textHolder(L);
-        const plan = holder && startAdjust(holder);
+        const found = textHolder(L);
+        const holder = found && found.el;
+        const plan = found && startAdjust(holder, found.title);
+        if (plan && plan.title) S.titles.add(holder); // a title is sized once, by the first agent to start it
+        if (plan) {
+            plan.layer = L;
+            L.adjustEl = holder;
+        }
         await moveTo(agent, () => {
             const r = firstLine();
             return { x: r.left - 2, y: r.top + r.height * 0.55 };
@@ -729,6 +774,7 @@
             return r ? visibleRect(r) : null;
         };
         const plan = startAdjust(el);
+        if (plan) L.adjustEl = el;
         await moveTo(agent, () => {
             const r = rect();
             return r ? { x: r.left, y: r.top } : { x: agent.x, y: agent.y, page: true };
@@ -1036,7 +1082,7 @@
         document.documentElement.appendChild(root);
 
         S = {
-            cfg, root, style, token: Symbol('run'), layers: [], agents: [], selections: new Set(), adjusting: new Map(),
+            cfg, root, style, token: Symbol('run'), layers: [], agents: [], selections: new Set(), adjusting: new Map(), titles: new Set(),
             built: 0, cursor: 0, spawned: 0, finished: false, bar: null, lastBar: 0, tourV: 0, tourY: null, skipped: 0, load: 0,
             phase: 'intro', introUntil: 0, outroAt: 0, spin: 0, gathering: false, peak: 0, buildAt: 0,
             paused: false, pausedMs: 0, lastPauseTick: performance.now(), introLeft: 0,
