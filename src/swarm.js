@@ -3,7 +3,8 @@
  *
  * The page is already built. DA Swarm hides its text, media and boxes without
  * changing the layout, then a swarm of named cursors "builds" each piece back:
- * typing text, dragging out boxes and fading media in. Nothing is sent anywhere
+ * typing text, dragging out boxes and fading media in. Some pieces land off
+ * and get dragged or resized into place. Nothing is sent anywhere
  * and stop() restores the page exactly.
  *
  * API: window.DASwarm.start(config), .stop(), .pause(), .resume(), .togglePause(),
@@ -22,6 +23,7 @@
         fromTop: true, // jump to the top before building
         labels: true, // name tags on cursors
         toolbar: true, // bottom status bar
+        adjust: 0.35, // share of pieces that land off or at the wrong size, then get dragged into place (0 turns it off)
         names: [
             'Ava', 'Hunter', 'Sage', 'Nova', 'Atlas', 'Echo', 'Iris', 'Orion',
             'Pixel', 'Rex', 'Vega', 'Zed', 'Kai', 'Luna', 'Milo', 'Nyx',
@@ -69,6 +71,7 @@
 .das-sel i{position:absolute;width:7px;height:7px;background:#fff;border:1.5px solid;border-color:inherit}
 .das-sel i:nth-child(1){left:-4px;top:-4px}.das-sel i:nth-child(2){right:-4px;top:-4px}
 .das-sel i:nth-child(3){left:-4px;bottom:-4px}.das-sel i:nth-child(4){right:-4px;bottom:-4px}
+.das-guide{opacity:.55}
 .das-dim{position:absolute;left:50%;top:calc(100% + 6px);transform:translateX(-50%);padding:2px 6px;border-radius:4px;color:#fff;font-size:10px;font-weight:600;white-space:nowrap}
 .das-bar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);pointer-events:auto;display:flex;align-items:center;gap:10px;padding:7px 8px 7px 12px;border-radius:12px;background:rgba(12,12,14,.92);border:1px solid rgba(255,255,255,.12);color:#ececf1;box-shadow:0 12px 32px rgba(0,0,0,.45);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);white-space:nowrap}
 .das-logo{font-weight:800;font-size:11px;letter-spacing:.08em;padding:3px 6px;border-radius:6px;color:#fff;background:linear-gradient(90deg,#f64e6e,#ff795e)}
@@ -517,6 +520,10 @@
             } catch (e) {
                 if (e !== STOPPED && S && S.token === token) revealNow(L);
                 throw e;
+            } finally {
+                const el = L.type === 'text' ? L.wrap && L.wrap.parentElement : L.el;
+                const plan = S && el && S.adjusting.get(el);
+                if (plan && L.state === 2) plan.restore();
             }
         }
     }
@@ -544,6 +551,123 @@
         S.agents = S.agents.filter((a) => a !== agent);
     }
 
+    // ── Adjusting ──────────────────────────────────────────────────────────────
+    // Some pieces land a little off: moved aside, or too small or too big. Their agent
+    // then grabs them and drags them into place, or pulls a corner to the right size.
+    // Only the CSS translate and scale properties change, so the layout never moves,
+    // a site's own transform keeps working, and stop() puts the old values back.
+
+    function canAdjust(el) {
+        if (!(S.cfg.adjust > 0) || !el || !el.isConnected || !el.style) return false;
+        if (el === document.body || el === document.documentElement) return false;
+        if (el.style.translate || el.style.scale) return false;
+        for (const other of S.adjusting.keys()) if (other.contains(el) || el.contains(other)) return false;
+        const cs = getComputedStyle(el);
+        if (cs.position === 'fixed' || cs.position === 'sticky' || cs.display === 'inline' || cs.display === 'contents') return false;
+        if ((cs.translate && cs.translate !== 'none') || (cs.scale && cs.scale !== 'none')) return false; // the site uses them
+        const r = el.getBoundingClientRect();
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        if (r.width < 40 || r.height < 14 || r.width > vw * 0.8 || r.height > vh * 0.55) return false;
+        return r.top >= 0 && r.bottom <= vh && r.left >= 0 && r.right <= vw; // fully on screen
+    }
+
+    // How far off the piece lands. It always stays on screen, so the page never scrolls sideways.
+    function planAdjust(el) {
+        const r = el.getBoundingClientRect();
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const home = { left: r.left + window.scrollX, top: r.top + window.scrollY, width: r.width, height: r.height };
+        if (Math.random() < 0.5) {
+            let k = Math.random() < 0.5 ? rand(0.6, 0.8) : rand(1.12, 1.3);
+            k = Math.min(k, (vw - 8 - r.left) / r.width, (vh - 8 - r.top) / r.height);
+            if (Math.abs(k - 1) >= 0.08) return { kind: 'resize', k, dx: 0, dy: 0, home };
+        }
+        const a = rand(0, Math.PI * 2);
+        const d = rand(45, 120);
+        const dx = clamp(Math.cos(a) * d, 8 - r.left, vw - 8 - r.right);
+        const dy = clamp(Math.sin(a) * d * 0.7, 8 - r.top, vh - 8 - r.bottom);
+        if (Math.hypot(dx, dy) < 24) return null;
+        return { kind: 'move', k: 1, dx, dy, home };
+    }
+
+    // Puts the piece at step t of its way home (0 = where it landed, 1 = home).
+    // Scaling keeps the top-left corner fixed, like pulling the bottom-right handle.
+    function placeAdjust(el, plan, t) {
+        const k = plan.k + (1 - plan.k) * t;
+        const w = el.offsetWidth || plan.home.width;
+        const h = el.offsetHeight || plan.home.height;
+        const x = (k - 1) * (w / 2) + plan.dx * (1 - t);
+        const y = (k - 1) * (h / 2) + plan.dy * (1 - t);
+        el.style.translate = `${x.toFixed(2)}px ${y.toFixed(2)}px`;
+        el.style.scale = k.toFixed(4);
+    }
+
+    function startAdjust(el) {
+        if (!canAdjust(el) || Math.random() >= S.cfg.adjust) return null;
+        const plan = planAdjust(el);
+        if (!plan) return null;
+        const saved = { hadStyle: el.hasAttribute('style'), translate: el.style.translate, scale: el.style.scale };
+        plan.restore = () => {
+            el.style.translate = saved.translate;
+            el.style.scale = saved.scale;
+            if (!saved.hadStyle && el.getAttribute('style') === '') el.removeAttribute('style');
+            if (S) S.adjusting.delete(el);
+        };
+        S.adjusting.set(el, plan);
+        placeAdjust(el, plan, 0);
+        return plan;
+    }
+
+    // The agent grabs the piece (its middle to move it, its corner to resize it) and
+    // drags it home. A faint dashed outline shows where it belongs.
+    async function settle(agent, el, plan, token) {
+        try {
+            const grab = () => {
+                const r = el.getBoundingClientRect();
+                return plan.kind === 'resize' ? { x: r.right, y: r.bottom } : { x: r.left + Math.min(r.width, 180) / 2, y: r.top + Math.min(r.height, 48) / 2 };
+            };
+            await moveTo(agent, grab);
+            alive(token);
+            const guide = addSelection(agent, () => ({
+                left: plan.home.left - window.scrollX,
+                top: plan.home.top - window.scrollY,
+                width: plan.home.width,
+                height: plan.home.height,
+            }), { dash: true });
+            guide.el.classList.add('das-guide');
+            const sel = addSelection(agent, () => el.getBoundingClientRect(), { handles: true, dim: plan.kind === 'resize' });
+            await wait(agent, rand(140, 300)); // a beat to take hold
+            alive(token);
+            agent.targetFn = grab;
+            const dur = (rand(560, 950) * clamp(Math.hypot(plan.dx, plan.dy) / 90 + Math.abs(1 - plan.k) * 2, 0.8, 1.4)) / agent.tempo;
+            let elapsed = 0;
+            let last = performance.now();
+            while (elapsed * S.cfg.speed < dur) {
+                await sleep(16);
+                alive(token);
+                const now = performance.now();
+                elapsed += Math.min(now - last, 50);
+                last = now;
+                placeAdjust(el, plan, ease(clamp((elapsed * S.cfg.speed) / dur, 0, 1)));
+            }
+            plan.restore();
+            await wait(agent, rand(120, 280));
+            removeSelection(sel);
+            removeSelection(guide);
+        } finally {
+            if (S && S.adjusting.get(el) === plan) plan.restore();
+        }
+    }
+
+    // The element a text node can be moved by: its parent, when the text is all it holds.
+    function textHolder(L) {
+        const el = L.wrap.parentElement;
+        if (!el || el.closest(`#${ROOT_ID}`)) return null;
+        if (S.boxEls.has(el)) return null; // a box that may already be on screen moves only with its own build
+        return el.textContent.trim() === L.node.nodeValue.trim() ? el : null;
+    }
+
     async function buildText(agent, L, token) {
         const wrap = L.wrap;
         const firstLine = () => {
@@ -551,6 +675,9 @@
             const r = rects[0] || wrap.getBoundingClientRect();
             return r;
         };
+        // The text may land off too; the agent then goes to where it landed.
+        const holder = textHolder(L);
+        const plan = holder && startAdjust(holder);
         await moveTo(agent, () => {
             const r = firstLine();
             return { x: r.left - 2, y: r.top + r.height * 0.55 };
@@ -591,6 +718,7 @@
         wrap.replaceChildren(L.node);
         await wait(agent, rand(60, 260));
         removeSelection(sel);
+        if (plan) await settle(agent, holder, plan, token);
         finish(L);
     }
 
@@ -600,6 +728,7 @@
             const r = el.isConnected ? el.getBoundingClientRect() : null;
             return r ? visibleRect(r) : null;
         };
+        const plan = startAdjust(el);
         await moveTo(agent, () => {
             const r = rect();
             return r ? { x: r.left, y: r.top } : { x: agent.x, y: agent.y, page: true };
@@ -630,6 +759,7 @@
         fadeIn(L, L.type === 'media' ? 'das-mh' : 'das-bh');
         await wait(agent, rand(220, 520));
         removeSelection(sel);
+        if (plan) await settle(agent, el, plan, token);
         finish(L);
     }
 
@@ -891,6 +1021,7 @@
         cfg.agents = clamp(Math.round(cfg.agents) || DEFAULTS.agents, 1, 64);
         cfg.maxAgents = Math.max(cfg.agents, Math.round(cfg.maxAgents) || DEFAULTS.maxAgents);
         cfg.speed = clamp(Math.round(cfg.speed) || 1, 1, 3);
+        cfg.adjust = cfg.adjust === false ? 0 : cfg.adjust === true ? DEFAULTS.adjust : clamp(Number(cfg.adjust) || 0, 0, 1);
         if (!Array.isArray(cfg.names)) cfg.names = DEFAULTS.names;
 
         if (cfg.fromTop) window.scrollTo({ top: 0, behavior: 'instant' });
@@ -905,7 +1036,7 @@
         document.documentElement.appendChild(root);
 
         S = {
-            cfg, root, style, token: Symbol('run'), layers: [], agents: [], selections: new Set(),
+            cfg, root, style, token: Symbol('run'), layers: [], agents: [], selections: new Set(), adjusting: new Map(),
             built: 0, cursor: 0, spawned: 0, finished: false, bar: null, lastBar: 0, tourV: 0, tourY: null, skipped: 0, load: 0,
             phase: 'intro', introUntil: 0, outroAt: 0, spin: 0, gathering: false, peak: 0, buildAt: 0,
             paused: false, pausedMs: 0, lastPauseTick: performance.now(), introLeft: 0,
@@ -913,6 +1044,7 @@
         };
 
         S.layers = collect();
+        S.boxEls = new Set(S.layers.filter((L) => L.type !== 'text').map((L) => L.el));
         hideAll(S.layers);
         refreshPositions();
         if (cfg.toolbar) buildBar();
@@ -945,6 +1077,7 @@
         for (const a of s.agents) {
             if (a.arrive) a.arrive.reject(STOPPED);
         }
+        for (const plan of [...s.adjusting.values()]) plan.restore();
         for (const L of s.layers) {
             if (L.type === 'text') {
                 if (L.wrap && L.wrap.parentNode) L.wrap.replaceWith(L.node);
@@ -979,6 +1112,7 @@
                 skipped: S.skipped, // layers scrolled past before an agent built them
                 agents: S.agents.length,
                 paused: S.paused,
+                adjusting: S.adjusting.size,
                 scrollY: window.scrollY,
                 layers: S.layers.map((L) => ({ type: L.type, state: L.state, pageY: Math.round(L.pageY), h: Math.round(L.h), text: L.type === 'text' ? L.node.nodeValue.trim().slice(0, 24) : L.el.tagName })),
             },
@@ -1011,6 +1145,8 @@
         set('labels', bool(pick('labels')));
         set('toolbar', bool(pick('toolbar')));
         set('fromTop', bool(pick('top', 'fromTop')));
+        const adjust = pick('adjust');
+        if (adjust !== undefined && adjust !== null) set('adjust', /^(0|false|no|off)$/i.test(adjust) ? 0 : /^(true|yes|on)?$/i.test(adjust) ? DEFAULTS.adjust : num(adjust));
         const names = pick('names');
         if (names) cfg.names = names.split(',').map((n) => n.trim()).filter(Boolean);
         return { cfg, delay: num(pick('delay')) || 0, trigger: ds.trigger || 'query', params };
